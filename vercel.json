@@ -1,5 +1,18 @@
 {
+  "version": 2,
   "rewrites": [
+    {
+      "source": "/api/photos/:id",
+      "destination": "/api/photos/[id]"
+    },
+    {
+      "source": "/api/reels/:id",
+      "destination": "/api/reels/[id]"
+    },
+    {
+      "source": "/api/plans/:id",
+      "destination": "/api/plans/[id]"
+    },
     {
       "source": "/api/auth/login",
       "destination": "/api/auth/login"

@@ -17,8 +17,8 @@ export const DEFAULT_DATA = {
     ctaButtonText: 'JOIN NOW / اشترك الآن',
     heroAnimatedBgUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1470&auto=format&fit=crop'
   },
-  photos: [],
-  reels: [],
+  photos: [] as Array<{ id: string; url: string; title: string; createdAt: string }>,
+  reels: [] as Array<{ id: string; url: string; title: string; createdAt: string }>,
   plans: [
     {
       id: 'plan-1',
@@ -80,48 +80,77 @@ export const DEFAULT_DATA = {
       order: 4
     }
   ],
-  subscriptions: []
+  subscriptions: [] as Array<any>
 };
 
-function getDbFilePath(): string {
+export function readServerlessDb(): any {
+  // First check /tmp
   const tmpPath = path.join('/tmp', 'pump_db.json');
   if (fs.existsSync(tmpPath)) {
-    return tmpPath;
+    try {
+      const raw = fs.readFileSync(tmpPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed) {
+        return {
+          settings: { ...DEFAULT_DATA.settings, ...(parsed.settings || {}) },
+          photos: Array.isArray(parsed.photos) ? parsed.photos : [],
+          reels: Array.isArray(parsed.reels) ? parsed.reels : [],
+          plans: Array.isArray(parsed.plans) && parsed.plans.length > 0 ? parsed.plans : DEFAULT_DATA.plans,
+          subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : []
+        };
+      }
+    } catch (e) {
+      console.error('Error reading tmp db:', e);
+    }
   }
+
+  // Second check project data/db.json
   const rootDataPath = path.join(process.cwd(), 'data', 'db.json');
   if (fs.existsSync(rootDataPath)) {
-    return rootDataPath;
-  }
-  return tmpPath;
-}
-
-export function readServerlessDb(): any {
-  try {
-    const filePath = getDbFilePath();
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+    try {
+      const raw = fs.readFileSync(rootDataPath, 'utf-8');
       const parsed = JSON.parse(raw);
-      return {
-        settings: { ...DEFAULT_DATA.settings, ...(parsed.settings || {}) },
-        photos: Array.isArray(parsed.photos) ? parsed.photos : [],
-        reels: Array.isArray(parsed.reels) ? parsed.reels : [],
-        plans: Array.isArray(parsed.plans) && parsed.plans.length > 0 ? parsed.plans : DEFAULT_DATA.plans,
-        subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : []
-      };
+      if (parsed) {
+        return {
+          settings: { ...DEFAULT_DATA.settings, ...(parsed.settings || {}) },
+          photos: Array.isArray(parsed.photos) ? parsed.photos : [],
+          reels: Array.isArray(parsed.reels) ? parsed.reels : [],
+          plans: Array.isArray(parsed.plans) && parsed.plans.length > 0 ? parsed.plans : DEFAULT_DATA.plans,
+          subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : []
+        };
+      }
+    } catch (e) {
+      console.error('Error reading root db:', e);
     }
-  } catch (e) {
-    console.error('Error reading DB in serverless function:', e);
   }
+
   return DEFAULT_DATA;
 }
 
 export function writeServerlessDb(data: any): boolean {
+  let written = false;
+
+  // Attempt 1: write to project root data/db.json
+  try {
+    const rootDataDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(rootDataDir)) {
+      fs.mkdirSync(rootDataDir, { recursive: true });
+    }
+    const rootDataPath = path.join(rootDataDir, 'db.json');
+    fs.writeFileSync(rootDataPath, JSON.stringify(data, null, 2), 'utf-8');
+    written = true;
+  } catch {
+    // Expected on read-only serverless roots (Vercel Lambda)
+  }
+
+  // Attempt 2: write to /tmp/pump_db.json (always writable in Serverless)
   try {
     const tmpPath = path.join('/tmp', 'pump_db.json');
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
+    written = true;
   } catch (e) {
-    console.error('Error writing DB in serverless function:', e);
-    return false;
+    console.error('Error writing /tmp db:', e);
   }
+
+  return written;
 }

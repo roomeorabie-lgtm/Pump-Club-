@@ -233,6 +233,11 @@ app.put('/api/settings', (req: Request, res: Response) => {
 });
 
 // Photos Endpoints
+app.get('/api/photos', (req: Request, res: Response) => {
+  const db = readDb();
+  res.json({ success: true, photos: db.photos || [] });
+});
+
 app.post('/api/photos', (req: Request, res: Response) => {
   const { url, title } = req.body;
   if (!url || typeof url !== 'string') {
@@ -273,6 +278,11 @@ app.delete('/api/photos/:id', (req: Request, res: Response) => {
 });
 
 // Reels Endpoints
+app.get('/api/reels', (req: Request, res: Response) => {
+  const db = readDb();
+  res.json({ success: true, reels: db.reels || [] });
+});
+
 app.post('/api/reels', (req: Request, res: Response) => {
   const { url, title } = req.body;
   if (!url || typeof url !== 'string') {

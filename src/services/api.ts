@@ -123,11 +123,11 @@ export const api = {
 
   async updatePhoto(id: string, photo: { url?: string; title?: string }): Promise<{ success: boolean; photo: GymPhoto; photos: GymPhoto[] }> {
     return safeFetchJson<{ success: boolean; photo: GymPhoto; photos: GymPhoto[] }>(
-      `/api/photos/${id}`,
+      `/api/photos/${encodeURIComponent(id)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(photo)
+        body: JSON.stringify({ ...photo, id })
       },
       'فشل تعديل الصورة'
     );
@@ -135,9 +135,11 @@ export const api = {
 
   async deletePhoto(id: string): Promise<{ success: boolean; photos: GymPhoto[] }> {
     return safeFetchJson<{ success: boolean; photos: GymPhoto[] }>(
-      `/api/photos/${id}`,
+      `/api/photos/${encodeURIComponent(id)}`,
       {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
       },
       'فشل حذف الصورة'
     );
@@ -158,11 +160,11 @@ export const api = {
 
   async updateReel(id: string, reel: { url?: string; title?: string }): Promise<{ success: boolean; reel: GymReel; reels: GymReel[] }> {
     return safeFetchJson<{ success: boolean; reel: GymReel; reels: GymReel[] }>(
-      `/api/reels/${id}`,
+      `/api/reels/${encodeURIComponent(id)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reel)
+        body: JSON.stringify({ ...reel, id })
       },
       'فشل تعديل الفيديو'
     );
@@ -170,9 +172,11 @@ export const api = {
 
   async deleteReel(id: string): Promise<{ success: boolean; reels: GymReel[] }> {
     return safeFetchJson<{ success: boolean; reels: GymReel[] }>(
-      `/api/reels/${id}`,
+      `/api/reels/${encodeURIComponent(id)}`,
       {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
       },
       'فشل حذف الفيديو'
     );
@@ -193,11 +197,11 @@ export const api = {
 
   async updatePlan(id: string, plan: Partial<SubscriptionPlan>): Promise<{ success: boolean; plan: SubscriptionPlan; plans: SubscriptionPlan[] }> {
     return safeFetchJson<{ success: boolean; plan: SubscriptionPlan; plans: SubscriptionPlan[] }>(
-      `/api/plans/${id}`,
+      `/api/plans/${encodeURIComponent(id)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(plan)
+        body: JSON.stringify({ ...plan, id })
       },
       'فشل تعديل الاشتراك'
     );
@@ -205,9 +209,11 @@ export const api = {
 
   async deletePlan(id: string): Promise<{ success: boolean; plans: SubscriptionPlan[] }> {
     return safeFetchJson<{ success: boolean; plans: SubscriptionPlan[] }>(
-      `/api/plans/${id}`,
+      `/api/plans/${encodeURIComponent(id)}`,
       {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
       },
       'فشل حذف الاشتراك'
     );
