@@ -198,20 +198,28 @@ app.get('/api/data', (req: Request, res: Response) => {
 });
 
 // Admin Authentication
-app.post('/api/auth/login', (req: Request, res: Response) => {
-  const { username, password } = req.body;
-  if (username === 'Pump' && password === '104070') {
-    return res.json({
+const handleAdminLogin = (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  const { username, password } = req.body || {};
+  const trimmedUser = (username || '').trim();
+  const trimmedPass = (password || '').trim();
+
+  if (trimmedUser === 'Pump' && trimmedPass === '104070') {
+    return res.status(200).json({
       success: true,
       token: 'pump-auth-authenticated-session-key',
       user: { username: 'Pump', role: 'admin' }
     });
   }
+
   return res.status(401).json({
     success: false,
     error: 'اسم المستخدم أو كلمة المرور غير صحيحة'
   });
-});
+};
+
+app.post('/api/auth/login', handleAdminLogin);
+app.post('/api/login', handleAdminLogin);
 
 // Update Settings
 app.put('/api/settings', (req: Request, res: Response) => {
