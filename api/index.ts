@@ -12,12 +12,44 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ success: true });
   }
 
-  // Parse request URL and path segments
-  const rawUrl = req.url || '';
-  const urlObj = new URL(rawUrl, 'http://localhost');
-  const pathname = urlObj.pathname.replace(/^\/api\/?/, '');
-  const segments = pathname.split('/').filter(Boolean);
+  // Parse path from all possible Vercel and Express formats
+  let rawPath = '';
 
+  // 1. Check query parameter `path` from Vercel rewrite /api/index?path=$1
+  if (req.query?.path) {
+    rawPath = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path);
+  } else if (req.query?.all) {
+    rawPath = Array.isArray(req.query.all) ? req.query.all.join('/') : String(req.query.all);
+  } else if (req.headers && req.headers['x-forwarded-uri']) {
+    rawPath = String(req.headers['x-forwarded-uri']);
+  } else if (req.headers && req.headers['x-matched-path']) {
+    rawPath = String(req.headers['x-matched-path']);
+  } else {
+    rawPath = req.url || '';
+  }
+
+  // Parse target URL/segments cleanly
+  const urlObj = new URL(rawPath.startsWith('/') ? `http://localhost${rawPath}` : `http://localhost/${rawPath}`);
+  let pathname = urlObj.pathname.replace(/^\/api\/?/, '');
+  
+  // Also check if path query param was in urlObj
+  const queryPathParam = urlObj.searchParams.get('path');
+  if (queryPathParam) {
+    pathname = queryPathParam.replace(/^\/api\/?/, '');
+  }
+
+  // Clean trailing and leading slashes
+  pathname = pathname.replace(/^\/+|\/+$/g, '');
+
+  // If path is "index", check if sub-query was passed or default to "data"
+  if (pathname === 'index' || pathname === '') {
+    const sub = urlObj.searchParams.get('route') || urlObj.searchParams.get('path');
+    if (sub) {
+      pathname = sub.replace(/^\/api\/?/, '').replace(/^\/+|\/+$/g, '');
+    }
+  }
+
+  const segments = pathname.split('/').filter(Boolean);
   const route = segments[0] || '';
   const subRoute = segments[1] || '';
 
@@ -60,8 +92,8 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 2. Initial Data: GET /api/data
-    if (route === 'data') {
+    // 2. Initial Data: GET /api/data or root GET /api
+    if (route === 'data' || route === '') {
       if (req.method !== 'GET') {
         return res.status(405).json({ success: false, error: 'طريقة الطلب غير مسموح بها' });
       }

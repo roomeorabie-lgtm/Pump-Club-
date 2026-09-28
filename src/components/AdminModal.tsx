@@ -7,28 +7,50 @@ import {
 import { GymPhoto, GymReel, GymSettings, SubscriptionPlan } from '../types';
 import { api } from '../services/api';
 import { parseVideoUrl } from '../utils/videoHelper';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface AdminModalProps {
   isOpen: boolean;
   onClose: () => void;
-  settings: GymSettings;
-  photos: GymPhoto[];
-  reels: GymReel[];
-  plans: SubscriptionPlan[];
+  settings?: GymSettings;
+  photos?: GymPhoto[];
+  reels?: GymReel[];
+  plans?: SubscriptionPlan[];
   onDataUpdated: () => void;
 }
+
+const DEFAULT_FALLBACK_SETTINGS: GymSettings = {
+  gymName: 'PUMP CLUB',
+  gymTagline: 'WHERE STRENGTH MEETS GREATNESS',
+  welcomeTitle: 'PUMP CLUB',
+  welcomeText: 'Welcome to Pump Club. Unleash your maximum potential with world-class machinery, championship-level coaching, and an intense athletic atmosphere built for serious progress.',
+  whatsappNumber: '01113220002',
+  instagramUrl: 'https://www.instagram.com/pump_club_gym?stkn=MTdrZDdqZDRweTAzeA==',
+  locationUrl: 'https://share.google/XTKKfHqCEi3obSBsE',
+  locationButtonText: 'موقع الجيم 📍',
+  tickerText: '🔥 مرحباً بكم في PUMP CLUB • تدريب احترافي بأحدث الأجهزة • عروض واشتراكات حصرية لفترة محدودة • انضم لأبطال بامب كلوب الآن! • 01113220002',
+  logoUrl: 'https://i.postimg.cc/QNWQb6ND/1000254467-removebg-preview.png',
+  heroBadgeText: 'ELITE FITNESS & BODYBUILDING',
+  ctaButtonText: 'JOIN NOW / اشترك الآن',
+  heroAnimatedBgUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1470&auto=format&fit=crop'
+};
 
 export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
   onClose,
   settings,
-  photos,
-  reels,
-  plans,
+  photos = [],
+  reels = [],
+  plans = [],
   onDataUpdated
 }) => {
+  // Safe authentication state from sessionStorage
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return sessionStorage.getItem('pump_admin_auth') === 'true';
+    try {
+      return sessionStorage.getItem('pump_admin_auth') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   // Login form state
@@ -41,8 +63,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   type TabType = 'settings' | 'photos' | 'reels' | 'plans' | 'leads';
   const [activeTab, setActiveTab] = useState<TabType>('settings');
 
-  // Form states
-  const [settingsForm, setSettingsForm] = useState<GymSettings>({ ...settings });
+  // Form states with safe fallbacks
+  const [settingsForm, setSettingsForm] = useState<GymSettings>(() => ({
+    ...DEFAULT_FALLBACK_SETTINGS,
+    ...(settings || {})
+  }));
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
 
@@ -84,10 +109,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [leads, setLeads] = useState<any[]>([]);
   const [isLoadingLeads, setIsLoadingLeads] = useState(false);
 
+  // Synchronize settings form when parent settings change
   useEffect(() => {
-    setSettingsForm({ ...settings });
+    setSettingsForm({
+      ...DEFAULT_FALLBACK_SETTINGS,
+      ...(settings || {})
+    });
   }, [settings]);
 
+  // Fetch leads when authenticated and leads tab is active
   useEffect(() => {
     if (isAuthenticated && activeTab === 'leads') {
       fetchLeads();
@@ -98,15 +128,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setIsLoadingLeads(true);
     try {
       const data = await api.getSubscriptions();
-      setLeads(data.subscriptions || []);
+      setLeads(Array.isArray(data?.subscriptions) ? data.subscriptions : []);
     } catch (e) {
-      console.error(e);
+      console.error('Failed to load leads:', e);
+      setLeads([]);
     } finally {
       setIsLoadingLeads(false);
     }
   };
 
   if (!isOpen) return null;
+
+  // Safe collections
+  const safePhotos = Array.isArray(photos) ? photos : [];
+  const safeReels = Array.isArray(reels) ? reels : [];
+  const safePlans = Array.isArray(plans) ? plans : [];
+  const safeLeads = Array.isArray(leads) ? leads : [];
 
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
@@ -118,12 +155,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       const res = await api.login(username.trim(), password.trim());
       if (res.success) {
         setIsAuthenticated(true);
-        sessionStorage.setItem('pump_admin_auth', 'true');
+        try {
+          sessionStorage.setItem('pump_admin_auth', 'true');
+        } catch {}
+        // Immediately fetch fresh database data
+        onDataUpdated();
       } else {
         setLoginError(res.error || 'بيانات الدخول غير صحيحة');
       }
     } catch (err: any) {
-      setLoginError(err.message || 'حدث خطأ أثناء تسجيل الدخول');
+      setLoginError(err?.message || 'حدث خطأ أثناء الاتصال بخادم تسجيل الدخول');
     } finally {
       setIsLoggingIn(false);
     }
@@ -131,7 +172,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    sessionStorage.removeItem('pump_admin_auth');
+    try {
+      sessionStorage.removeItem('pump_admin_auth');
+    } catch {}
     setUsername('');
     setPassword('');
   };
@@ -148,7 +191,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       onDataUpdated();
       setTimeout(() => setSettingsSuccess(false), 3000);
     } catch (err: any) {
-      alert(err.message || 'فشل حفظ الإعدادات');
+      alert(err?.message || 'فشل حفظ الإعدادات');
     } finally {
       setIsSavingSettings(false);
     }
@@ -169,7 +212,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setNewPhotoTitle('');
       onDataUpdated();
     } catch (err: any) {
-      setPhotoError(err.message || 'فشل إضافة الصورة');
+      setPhotoError(err?.message || 'فشل إضافة الصورة');
     }
   };
 
@@ -180,7 +223,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await api.deletePhoto(id);
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل حذف الصورة');
+      alert(err?.message || 'فشل حذف الصورة');
     }
   };
 
@@ -191,7 +234,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setEditingPhotoId(null);
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل تعديل الصورة');
+      alert(err?.message || 'فشل تعديل الصورة');
     }
   };
 
@@ -210,7 +253,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setNewReelTitle('');
       onDataUpdated();
     } catch (err: any) {
-      setReelError(err.message || 'فشل إضافة الفيديو');
+      setReelError(err?.message || 'فشل إضافة الفيديو');
     }
   };
 
@@ -221,7 +264,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await api.deleteReel(id);
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل حذف الفيديو');
+      alert(err?.message || 'فشل حذف الفيديو');
     }
   };
 
@@ -232,7 +275,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setEditingReelId(null);
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل تعديل الفيديو');
+      alert(err?.message || 'فشل تعديل الفيديو');
     }
   };
 
@@ -245,7 +288,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       return;
     }
 
-    const featuresArray = planForm.featuresText
+    const featuresArray = (planForm.featuresText || '')
       .split('\n')
       .map(s => s.trim())
       .filter(Boolean);
@@ -273,7 +316,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       }
       onDataUpdated();
     } catch (err: any) {
-      setPlanError(err.message || 'فشل حفظ الاشتراك');
+      setPlanError(err?.message || 'فشل حفظ الاشتراك');
     }
   };
 
@@ -283,15 +326,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await api.deletePlan(id);
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل حذف الاشتراك');
+      alert(err?.message || 'فشل حذف الاشتراك');
     }
   };
 
   const handleMovePlan = async (index: number, direction: 'up' | 'down') => {
     const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= plans.length) return;
+    if (newIndex < 0 || newIndex >= safePlans.length) return;
 
-    const reordered = [...plans];
+    const reordered = [...safePlans];
     const [moved] = reordered.splice(index, 1);
     reordered.splice(newIndex, 0, moved);
 
@@ -299,16 +342,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await api.reorderPlans(reordered.map(p => p.id));
       onDataUpdated();
     } catch (err: any) {
-      alert(err.message || 'فشل إعادة الترتيب');
+      alert(err?.message || 'فشل إعادة الترتيب');
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
-      <div className="relative w-full max-w-5xl bg-[#0f0f0f] border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-6 flex flex-col max-h-[90vh]">
-        
+      <div
+        className={`relative w-full max-w-5xl bg-[#0f0f0f] border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col transition-all ${
+          isAuthenticated
+            ? 'h-[92vh] sm:h-[88vh] max-h-[920px]'
+            : 'h-auto max-h-[90vh]'
+        }`}
+      >
         {/* Top Header */}
-        <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-4 flex items-center justify-between">
+        <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-red-600/20 border border-red-600/30 text-red-500 flex items-center justify-center">
               <ShieldCheck className="w-5 h-5" />
@@ -396,850 +444,865 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoggingIn}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-sm rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.4)] transition-all cursor-pointer disabled:opacity-50 mt-2"
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-sm rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.4)] transition-all cursor-pointer disabled:opacity-50 mt-2 flex items-center justify-center gap-2"
               >
-                {isLoggingIn ? 'جاري التحقق...' : 'دخول لوحة التحكم'}
+                {isLoggingIn && <RefreshCw className="w-4 h-4 animate-spin" />}
+                <span>{isLoggingIn ? 'جاري التحقق...' : 'دخول لوحة التحكم'}</span>
               </button>
             </form>
           </div>
         ) : (
-          /* AUTHENTICATED DASHBOARD */
-          <div className="flex flex-col flex-1 overflow-hidden">
-            
-            {/* Navigation Tabs */}
-            <div className="flex border-b border-neutral-800 bg-neutral-950 overflow-x-auto p-2 gap-1 shrink-0">
-              <button
-                onClick={() => setActiveTab('settings')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === 'settings'
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                <span>الإعدادات العامة</span>
-              </button>
+          /* AUTHENTICATED DASHBOARD WRAPPED IN ERROR BOUNDARY */
+          <ErrorBoundary onReset={onDataUpdated}>
+            <div className="flex flex-col flex-1 overflow-hidden min-h-0">
+              {/* Navigation Tabs */}
+              <div className="flex border-b border-neutral-800 bg-neutral-950 overflow-x-auto p-2 gap-1 shrink-0">
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    activeTab === 'settings'
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>الإعدادات العامة</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('photos')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === 'photos'
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                <Camera className="w-4 h-4" />
-                <span>صور الجيم ({photos.length})</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('photos')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    activeTab === 'photos'
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>صور الجيم ({safePhotos.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('reels')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === 'reels'
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                <Film className="w-4 h-4" />
-                <span>الفيديوهات والريلز ({reels.length})</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('reels')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    activeTab === 'reels'
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <Film className="w-4 h-4" />
+                  <span>الفيديوهات والريلز ({safeReels.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('plans')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === 'plans'
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>باقات الاشتراكات ({plans.length})</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('plans')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    activeTab === 'plans'
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>باقات الاشتراكات ({safePlans.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('leads')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === 'leads'
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>طلبات الاشتراكات المستلمة ({leads.length})</span>
-              </button>
-            </div>
+                <button
+                  onClick={() => setActiveTab('leads')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    activeTab === 'leads'
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>طلبات الاشتراكات المستلمة ({safeLeads.length})</span>
+                </button>
+              </div>
 
-            {/* Tab Contents */}
-            <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6">
-
-              {/* 1. GENERAL SETTINGS */}
-              {activeTab === 'settings' && (
-                <form onSubmit={handleSaveSettings} className="space-y-6 max-w-3xl">
-                  {settingsSuccess && (
-                    <div className="p-3 bg-emerald-950/60 border border-emerald-800 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
-                      <Check className="w-4 h-4" />
-                      <span>تم حفظ وتحديث الإعدادات بنجاح في قاعدة البيانات وتطبيقها فوراً على الموقع!</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        اسم الجيم (Gym Name)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.gymName}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, gymName: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        الوصف المختصر (Tagline)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.gymTagline}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, gymTagline: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                      نص الترحيب في الواجهة الرئيسية (Welcome Text)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={settingsForm.welcomeText}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, welcomeText: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        رقم الواتساب الرسمي (WhatsApp)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.whatsappNumber}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, whatsappNumber: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
-                        dir="ltr"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        رابط إنستجرام (Instagram Link)
-                      </label>
-                      <input
-                        type="url"
-                        value={settingsForm.instagramUrl}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, instagramUrl: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
-                        dir="ltr"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        رابط موقع الجيم (Google Maps Link)
-                      </label>
-                      <input
-                        type="url"
-                        value={settingsForm.locationUrl}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, locationUrl: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
-                        dir="ltr"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                        نص زر الموقع
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.locationButtonText}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, locationButtonText: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                      نص شريط الإعلانات المتحرك (Moving Announcement Ticker)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={settingsForm.tickerText}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, tickerText: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                      رابط الصورة أو الفيديو المتحرك لخلفية قسم الترحيب (Animated Background URL - GIF / MP4 / Image)
-                    </label>
-                    <input
-                      type="url"
-                      value={settingsForm.heroAnimatedBgUrl || ''}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, heroAnimatedBgUrl: e.target.value })}
-                      placeholder="https://example.com/gym-animation.mp4 أو رابط صورة متحركة GIF"
-                      className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
-                      dir="ltr"
-                    />
-                    <p className="text-[11px] text-neutral-400 mt-1">
-                      يدعم روابط الفيديو المباشرة (mp4 / webm) وروابط الصور المتحركة (GIF / WebP).
-                    </p>
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={isSavingSettings}
-                      className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-lg transition-all cursor-pointer"
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>{isSavingSettings ? 'جاري الحفظ...' : 'حفظ التغييرات'}</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* 2. PHOTOS MANAGEMENT */}
-              {activeTab === 'photos' && (
-                <div className="space-y-8">
-                  {/* Add Photo Form */}
-                  <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800">
-                    <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-red-500" />
-                      <span>إضافة صورة جديدة لصالة الجيم</span>
-                    </h4>
-
-                    {photoError && (
-                      <p className="text-red-500 text-xs mb-3">{photoError}</p>
+              {/* Tab Contents */}
+              <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6">
+                {/* 1. GENERAL SETTINGS */}
+                {activeTab === 'settings' && (
+                  <form onSubmit={handleSaveSettings} className="space-y-6 max-w-3xl">
+                    {settingsSuccess && (
+                      <div className="p-3 bg-emerald-950/60 border border-emerald-800 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
+                        <Check className="w-4 h-4" />
+                        <span>تم حفظ وتحديث الإعدادات بنجاح في قاعدة البيانات وتطبيقها فوراً على الموقع!</span>
+                      </div>
                     )}
 
-                    <form onSubmit={handleAddPhoto} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                      <div className="sm:col-span-7">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          اسم الجيم (Gym Name)
+                        </label>
                         <input
-                          type="url"
-                          required
-                          placeholder="رابط الصورة المباشر (Direct Image URL)"
-                          value={newPhotoUrl}
-                          onChange={(e) => setNewPhotoUrl(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
+                          type="text"
+                          value={settingsForm.gymName || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, gymName: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          الوصف المختصر (Tagline)
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.gymTagline || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, gymTagline: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                        نص الترحيب في الواجهة الرئيسية (Welcome Text)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={settingsForm.welcomeText || ''}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, welcomeText: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          رقم الواتساب الرسمي (WhatsApp)
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.whatsappNumber || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, whatsappNumber: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
                           dir="ltr"
                         />
                       </div>
-                      <div className="sm:col-span-3">
-                        <input
-                          type="text"
-                          placeholder="عنوان أو وصف الصورة"
-                          value={newPhotoTitle}
-                          onChange={(e) => setNewPhotoTitle(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <button
-                          type="submit"
-                          className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                          <span>إضافة</span>
-                        </button>
-                      </div>
-                    </form>
-                  </div>
 
-                  {/* Photos List */}
-                  <div>
-                    <h4 className="text-sm font-bold text-white mb-4">
-                      الصور الحالية ({photos.length})
-                    </h4>
-
-                    {photos.length === 0 ? (
-                      <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
-                        لا توجد صور مضافة بعد. أضف روابط الصور الخاصة بصالة PUMP CLUB أعلاه لتظهر فوراً لزوار الموقع.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {photos.map((p) => {
-                          const isEditing = editingPhotoId === p.id;
-                          return (
-                            <div
-                              key={p.id}
-                              className="rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 flex flex-col"
-                            >
-                              <div className="relative aspect-[4/3] bg-neutral-900">
-                                <img
-                                  src={p.url}
-                                  alt={p.title}
-                                  className="w-full h-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-
-                              <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                                {isEditing ? (
-                                  <div className="space-y-2">
-                                    <input
-                                      type="text"
-                                      value={editPhotoTitle}
-                                      onChange={(e) => setEditPhotoTitle(e.target.value)}
-                                      placeholder="عنوان الصورة"
-                                      className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white"
-                                    />
-                                    <input
-                                      type="url"
-                                      value={editPhotoUrl}
-                                      onChange={(e) => setEditPhotoUrl(e.target.value)}
-                                      placeholder="رابط الصورة"
-                                      className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white font-mono"
-                                      dir="ltr"
-                                    />
-                                    <div className="flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdatePhoto(p.id)}
-                                        className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
-                                      >
-                                        حفظ
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingPhotoId(null)}
-                                        className="px-2 py-1 bg-neutral-800 text-neutral-300 text-xs rounded hover:bg-neutral-700"
-                                      >
-                                        إلغاء
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="font-bold text-white text-xs truncate">
-                                      {p.title || 'بدون عنوان'}
-                                    </div>
-                                    <div className="flex items-center justify-between pt-2 border-t border-neutral-900">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingPhotoId(p.id);
-                                          setEditPhotoTitle(p.title);
-                                          setEditPhotoUrl(p.url);
-                                        }}
-                                        className="p-1.5 text-neutral-400 hover:text-white rounded hover:bg-neutral-900 text-xs flex items-center gap-1"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                        <span>تعديل</span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeletePhoto(p.id)}
-                                        className="p-1.5 text-red-400 hover:text-red-300 rounded hover:bg-red-950/40 text-xs flex items-center gap-1"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        <span>حذف</span>
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 3. REELS MANAGEMENT */}
-              {activeTab === 'reels' && (
-                <div className="space-y-8">
-                  {/* Add Reel Form */}
-                  <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800">
-                    <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-red-500" />
-                      <span>إضافة مقطع فيديو أو ريل جديد</span>
-                    </h4>
-
-                    {reelError && (
-                      <p className="text-red-500 text-xs mb-3">{reelError}</p>
-                    )}
-
-                    <form onSubmit={handleAddReel} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                      <div className="sm:col-span-7">
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          رابط إنستجرام (Instagram Link)
+                        </label>
                         <input
                           type="url"
-                          required
-                          placeholder="رابط الفيديو (YouTube Shorts / YouTube / رابط MP4 مباشر)"
-                          value={newReelUrl}
-                          onChange={(e) => setNewReelUrl(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
+                          value={settingsForm.instagramUrl || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, instagramUrl: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
                           dir="ltr"
                         />
                       </div>
-                      <div className="sm:col-span-3">
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          رابط موقع الجيم (Google Maps Link)
+                        </label>
                         <input
-                          type="text"
-                          placeholder="عنوان المقطع (اختياري)"
-                          value={newReelTitle}
-                          onChange={(e) => setNewReelTitle(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                          type="url"
+                          value={settingsForm.locationUrl || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, locationUrl: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
+                          dir="ltr"
                         />
                       </div>
-                      <div className="sm:col-span-2">
-                        <button
-                          type="submit"
-                          className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                          <span>إضافة</span>
-                        </button>
+
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                          نص زر الموقع
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.locationButtonText || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, locationButtonText: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
+                        />
                       </div>
-                    </form>
-                  </div>
+                    </div>
 
-                  {/* Reels List */}
-                  <div>
-                    <h4 className="text-sm font-bold text-white mb-4">
-                      المقاطع الحالية ({reels.length})
-                    </h4>
-
-                    {reels.length === 0 ? (
-                      <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
-                        لا توجد مقاطع مضافة بعد. أضف روابط مقاطع الفيديو أو ريلز النادي أعلاه لتظهر في قسم الفيديوهات.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {reels.map((r) => {
-                          const isEditing = editingReelId === r.id;
-                          const videoInfo = parseVideoUrl(r.url);
-
-                          return (
-                            <div
-                              key={r.id}
-                              className="rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 flex flex-col"
-                            >
-                              <div className="aspect-[9/12] bg-black flex items-center justify-center overflow-hidden">
-                                {videoInfo.type === 'youtube' && videoInfo.embedUrl ? (
-                                  <iframe
-                                    src={videoInfo.embedUrl}
-                                    title={r.title}
-                                    className="w-full h-full border-0"
-                                  />
-                                ) : videoInfo.type === 'direct' && videoInfo.directUrl ? (
-                                  <video
-                                    src={videoInfo.directUrl}
-                                    controls
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="text-neutral-500 text-xs p-4 text-center">
-                                    {r.url}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                                {isEditing ? (
-                                  <div className="space-y-2">
-                                    <input
-                                      type="text"
-                                      value={editReelTitle}
-                                      onChange={(e) => setEditReelTitle(e.target.value)}
-                                      placeholder="عنوان الفيديو"
-                                      className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white"
-                                    />
-                                    <input
-                                      type="url"
-                                      value={editReelUrl}
-                                      onChange={(e) => setEditReelUrl(e.target.value)}
-                                      placeholder="رابط الفيديو"
-                                      className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white font-mono"
-                                      dir="ltr"
-                                    />
-                                    <div className="flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateReel(r.id)}
-                                        className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
-                                      >
-                                        حفظ
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingReelId(null)}
-                                        className="px-2 py-1 bg-neutral-800 text-neutral-300 text-xs rounded hover:bg-neutral-700"
-                                      >
-                                        إلغاء
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="font-bold text-white text-xs truncate">
-                                      {r.title || 'بدون عنوان'}
-                                    </div>
-                                    <div className="flex items-center justify-between pt-2 border-t border-neutral-900">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingReelId(r.id);
-                                          setEditReelTitle(r.title);
-                                          setEditReelUrl(r.url);
-                                        }}
-                                        className="p-1.5 text-neutral-400 hover:text-white rounded hover:bg-neutral-900 text-xs flex items-center gap-1"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                        <span>تعديل</span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteReel(r.id)}
-                                        className="p-1.5 text-red-400 hover:text-red-300 rounded hover:bg-red-950/40 text-xs flex items-center gap-1"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        <span>حذف</span>
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 4. PLANS MANAGEMENT */}
-              {activeTab === 'plans' && (
-                <div className="space-y-8">
-                  {/* Header & Add Plan Trigger */}
-                  <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-base font-bold text-white">إدارة باقات وعضويات النادي</h4>
-                      <p className="text-xs text-neutral-400 mt-0.5">
-                        يمكنك إضافة أو تعديل أو إعادة ترتيب باقات الاشتراك والأسعار بالجنيه المصري (EGP).
+                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                        نص شريط الإعلانات المتحرك (Moving Announcement Ticker)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={settingsForm.tickerText || ''}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, tickerText: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                        رابط الصورة أو الفيديو المتحرك لخلفية قسم الترحيب (Animated Background URL - GIF / MP4 / Image)
+                      </label>
+                      <input
+                        type="url"
+                        value={settingsForm.heroAnimatedBgUrl || ''}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, heroAnimatedBgUrl: e.target.value })}
+                        placeholder="https://example.com/gym-animation.mp4 أو رابط صورة متحركة GIF"
+                        className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-sm focus:border-red-600 focus:outline-none font-mono"
+                        dir="ltr"
+                      />
+                      <p className="text-[11px] text-neutral-400 mt-1">
+                        يدعم روابط الفيديو المباشرة (mp4 / webm) وروابط الصور المتحركة (GIF / WebP).
                       </p>
                     </div>
 
-                    {!isAddingPlan && !editingPlanId && (
+                    <div className="pt-2">
                       <button
-                        onClick={() => {
-                          setIsAddingPlan(true);
-                          setPlanForm({
-                            duration: '',
-                            price: 0,
-                            badge: '',
-                            isPopular: false,
-                            featuresText: 'دخول يومي غير محدود\nاستخدام كافة الأجهزة'
-                          });
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        type="submit"
+                        disabled={isSavingSettings}
+                        className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-lg transition-all cursor-pointer disabled:opacity-50"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>إضافة باقة جديدة</span>
+                        <Save className="w-4 h-4" />
+                        <span>{isSavingSettings ? 'جاري الحفظ...' : 'حفظ التغييرات'}</span>
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  </form>
+                )}
 
-                  {/* Add or Edit Plan Form Modal/Box */}
-                  {(isAddingPlan || editingPlanId) && (
-                    <div className="p-6 rounded-2xl bg-neutral-950 border-2 border-red-600/50 shadow-xl space-y-4">
-                      <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                          <CreditCard className="w-4 h-4 text-red-500" />
-                          <span>{editingPlanId ? 'تعديل باقة الاشتراك' : 'إضافة باقة اشتراك جديدة'}</span>
-                        </h4>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsAddingPlan(false);
-                            setEditingPlanId(null);
-                          }}
-                          className="text-neutral-400 hover:text-white"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
+                {/* 2. PHOTOS MANAGEMENT */}
+                {activeTab === 'photos' && (
+                  <div className="space-y-8">
+                    {/* Add Photo Form */}
+                    <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800">
+                      <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-red-500" />
+                        <span>إضافة صورة جديدة لصالة الجيم</span>
+                      </h4>
 
-                      {planError && <p className="text-red-500 text-xs">{planError}</p>}
+                      {photoError && (
+                        <p className="text-red-500 text-xs mb-3">{photoError}</p>
+                      )}
 
-                      <form onSubmit={handleSavePlan} className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-bold text-neutral-300 mb-1">
-                              مدة الاشتراك (Subscription Duration) *
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="مثال: شهر واحد (1 Month)"
-                              value={planForm.duration}
-                              onChange={(e) => setPlanForm({ ...planForm, duration: e.target.value })}
-                              className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-bold text-neutral-300 mb-1">
-                              السعر بالجنيه المصري (Price in EGP) *
-                            </label>
-                            <input
-                              type="number"
-                              required
-                              min="0"
-                              placeholder="مثال: 800"
-                              value={planForm.price || ''}
-                              onChange={(e) => setPlanForm({ ...planForm, price: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
-                              dir="ltr"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-bold text-neutral-300 mb-1">
-                              شارة مميزة (Badge - اختياري)
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="مثال: الأكثر طلباً أو أفضل قيمة"
-                              value={planForm.badge}
-                              onChange={(e) => setPlanForm({ ...planForm, badge: e.target.value })}
-                              className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-6">
-                            <input
-                              type="checkbox"
-                              id="isPopular"
-                              checked={planForm.isPopular}
-                              onChange={(e) => setPlanForm({ ...planForm, isPopular: e.target.checked })}
-                              className="accent-red-600 w-4 h-4 rounded"
-                            />
-                            <label htmlFor="isPopular" className="text-xs text-white font-bold cursor-pointer">
-                              إبراز هذه الباقة بإطار أحمر وتأثير متميز (Featured)
-                            </label>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-neutral-300 mb-1">
-                            مميزات الاشتراك (ميزة في كل سطر)
-                          </label>
-                          <textarea
-                            rows={4}
-                            value={planForm.featuresText}
-                            onChange={(e) => setPlanForm({ ...planForm, featuresText: e.target.value })}
-                            placeholder="دخول يومي غير محدود&#10;خطة تدريب وتغذية&#10;فحص دوري"
-                            className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                      <form onSubmit={handleAddPhoto} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        <div className="sm:col-span-7">
+                          <input
+                            type="url"
+                            required
+                            placeholder="رابط الصورة المباشر (Direct Image URL)"
+                            value={newPhotoUrl}
+                            onChange={(e) => setNewPhotoUrl(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
+                            dir="ltr"
                           />
                         </div>
+                        <div className="sm:col-span-3">
+                          <input
+                            type="text"
+                            placeholder="عنوان أو وصف الصورة"
+                            value={newPhotoTitle}
+                            onChange={(e) => setNewPhotoTitle(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>إضافة</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
 
-                        <div className="flex justify-end gap-3 pt-2">
+                    {/* Photos List */}
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-4">
+                        الصور الحالية ({safePhotos.length})
+                      </h4>
+
+                      {safePhotos.length === 0 ? (
+                        <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
+                          لا توجد صور مضافة بعد. أضف روابط الصور الخاصة بصالة PUMP CLUB أعلاه لتظهر فوراً لزوار الموقع.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {safePhotos.map((p) => {
+                            const isEditing = editingPhotoId === p.id;
+                            return (
+                              <div
+                                key={p.id}
+                                className="rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 flex flex-col"
+                              >
+                                <div className="relative aspect-[4/3] bg-neutral-900">
+                                  <img
+                                    src={p.url}
+                                    alt={p.title || 'Pump Club'}
+                                    className="w-full h-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=600';
+                                    }}
+                                  />
+                                </div>
+
+                                <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
+                                  {isEditing ? (
+                                    <div className="space-y-2">
+                                      <input
+                                        type="text"
+                                        value={editPhotoTitle}
+                                        onChange={(e) => setEditPhotoTitle(e.target.value)}
+                                        placeholder="عنوان الصورة"
+                                        className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white"
+                                      />
+                                      <input
+                                        type="url"
+                                        value={editPhotoUrl}
+                                        onChange={(e) => setEditPhotoUrl(e.target.value)}
+                                        placeholder="رابط الصورة"
+                                        className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white font-mono"
+                                        dir="ltr"
+                                      />
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdatePhoto(p.id)}
+                                          className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
+                                        >
+                                          حفظ
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingPhotoId(null)}
+                                          className="px-2 py-1 bg-neutral-800 text-neutral-300 text-xs rounded hover:bg-neutral-700"
+                                        >
+                                          إلغاء
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="font-bold text-white text-xs truncate">
+                                        {p.title || 'بدون عنوان'}
+                                      </div>
+                                      <div className="flex items-center justify-between pt-2 border-t border-neutral-900">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingPhotoId(p.id);
+                                            setEditPhotoTitle(p.title || '');
+                                            setEditPhotoUrl(p.url || '');
+                                          }}
+                                          className="p-1.5 text-neutral-400 hover:text-white rounded hover:bg-neutral-900 text-xs flex items-center gap-1"
+                                        >
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                          <span>تعديل</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeletePhoto(p.id)}
+                                          className="p-1.5 text-red-400 hover:text-red-300 rounded hover:bg-red-950/40 text-xs flex items-center gap-1"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>حذف</span>
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. REELS MANAGEMENT */}
+                {activeTab === 'reels' && (
+                  <div className="space-y-8">
+                    {/* Add Reel Form */}
+                    <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800">
+                      <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-red-500" />
+                        <span>إضافة مقطع فيديو أو ريل جديد</span>
+                      </h4>
+
+                      {reelError && (
+                        <p className="text-red-500 text-xs mb-3">{reelError}</p>
+                      )}
+
+                      <form onSubmit={handleAddReel} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        <div className="sm:col-span-7">
+                          <input
+                            type="url"
+                            required
+                            placeholder="رابط الفيديو (YouTube Shorts / YouTube / رابط MP4 مباشر)"
+                            value={newReelUrl}
+                            onChange={(e) => setNewReelUrl(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <input
+                            type="text"
+                            placeholder="عنوان المقطع (اختياري)"
+                            value={newReelTitle}
+                            onChange={(e) => setNewReelTitle(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>إضافة</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Reels List */}
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-4">
+                        المقاطع الحالية ({safeReels.length})
+                      </h4>
+
+                      {safeReels.length === 0 ? (
+                        <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
+                          لا توجد مقاطع مضافة بعد. أضف روابط مقاطع الفيديو أو ريلز النادي أعلاه لتظهر في قسم الفيديوهات.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {safeReels.map((r) => {
+                            const isEditing = editingReelId === r.id;
+                            const videoInfo = parseVideoUrl(r.url || '');
+
+                            return (
+                              <div
+                                key={r.id}
+                                className="rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 flex flex-col"
+                              >
+                                <div className="aspect-[9/12] bg-black flex items-center justify-center overflow-hidden">
+                                  {videoInfo.type === 'youtube' && videoInfo.embedUrl ? (
+                                    <iframe
+                                      src={videoInfo.embedUrl}
+                                      title={r.title || 'Video'}
+                                      className="w-full h-full border-0"
+                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                      allowFullScreen
+                                    />
+                                  ) : videoInfo.type === 'direct' && videoInfo.directUrl ? (
+                                    <video
+                                      src={videoInfo.directUrl}
+                                      controls
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="text-neutral-500 text-xs p-4 text-center">
+                                      {r.url}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
+                                  {isEditing ? (
+                                    <div className="space-y-2">
+                                      <input
+                                        type="text"
+                                        value={editReelTitle}
+                                        onChange={(e) => setEditReelTitle(e.target.value)}
+                                        placeholder="عنوان الفيديو"
+                                        className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white"
+                                      />
+                                      <input
+                                        type="url"
+                                        value={editReelUrl}
+                                        onChange={(e) => setEditReelUrl(e.target.value)}
+                                        placeholder="رابط الفيديو"
+                                        className="w-full px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs text-white font-mono"
+                                        dir="ltr"
+                                      />
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateReel(r.id)}
+                                          className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
+                                        >
+                                          حفظ
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingReelId(null)}
+                                          className="px-2 py-1 bg-neutral-800 text-neutral-300 text-xs rounded hover:bg-neutral-700"
+                                        >
+                                          إلغاء
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="font-bold text-white text-xs truncate">
+                                        {r.title || 'بدون عنوان'}
+                                      </div>
+                                      <div className="flex items-center justify-between pt-2 border-t border-neutral-900">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingReelId(r.id);
+                                            setEditReelTitle(r.title || '');
+                                            setEditReelUrl(r.url || '');
+                                          }}
+                                          className="p-1.5 text-neutral-400 hover:text-white rounded hover:bg-neutral-900 text-xs flex items-center gap-1"
+                                        >
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                          <span>تعديل</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteReel(r.id)}
+                                          className="p-1.5 text-red-400 hover:text-red-300 rounded hover:bg-red-950/40 text-xs flex items-center gap-1"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>حذف</span>
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. PLANS MANAGEMENT */}
+                {activeTab === 'plans' && (
+                  <div className="space-y-8">
+                    {/* Header & Add Plan Trigger */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-base font-bold text-white">إدارة باقات وعضويات النادي</h4>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          يمكنك إضافة أو تعديل أو إعادة ترتيب باقات الاشتراك والأسعار بالجنيه المصري (EGP).
+                        </p>
+                      </div>
+
+                      {!isAddingPlan && !editingPlanId && (
+                        <button
+                          onClick={() => {
+                            setIsAddingPlan(true);
+                            setPlanForm({
+                              duration: '',
+                              price: 0,
+                              badge: '',
+                              isPopular: false,
+                              featuresText: 'دخول يومي غير محدود\nاستخدام كافة الأجهزة'
+                            });
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>إضافة باقة جديدة</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Add or Edit Plan Form Modal/Box */}
+                    {(isAddingPlan || editingPlanId) && (
+                      <div className="p-6 rounded-2xl bg-neutral-950 border-2 border-red-600/50 shadow-xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <CreditCard className="w-4 h-4 text-red-500" />
+                            <span>{editingPlanId ? 'تعديل باقة الاشتراك' : 'إضافة باقة اشتراك جديدة'}</span>
+                          </h4>
                           <button
                             type="button"
                             onClick={() => {
                               setIsAddingPlan(false);
                               setEditingPlanId(null);
                             }}
-                            className="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs hover:bg-neutral-700"
+                            className="text-neutral-400 hover:text-white"
                           >
-                            إلغاء
-                          </button>
-                          <button
-                            type="submit"
-                            className="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 shadow-md"
-                          >
-                            حفظ الباقة
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                      </form>
-                    </div>
-                  )}
 
-                  {/* Plans Table/List */}
-                  <div className="space-y-3">
-                    {plans.map((p, index) => (
-                      <div
-                        key={p.id}
-                        className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                      >
-                        <div className="flex items-center gap-4">
-                          {/* Reorder buttons */}
-                          <div className="flex flex-col gap-1">
-                            <button
-                              type="button"
-                              disabled={index === 0}
-                              onClick={() => handleMovePlan(index, 'up')}
-                              className="p-1 rounded bg-neutral-900 text-neutral-400 hover:text-white disabled:opacity-30"
-                              title="تحريك لأعلى"
-                            >
-                              <ArrowUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={index === plans.length - 1}
-                              onClick={() => handleMovePlan(index, 'down')}
-                              className="p-1 rounded bg-neutral-900 text-neutral-400 hover:text-white disabled:opacity-30"
-                              title="تحريك لأسفل"
-                            >
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            </button>
+                        {planError && <p className="text-red-500 text-xs">{planError}</p>}
+
+                        <form onSubmit={handleSavePlan} className="space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-bold text-neutral-300 mb-1">
+                                مدة الاشتراك (Subscription Duration) *
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="مثال: شهر واحد (1 Month)"
+                                value={planForm.duration}
+                                onChange={(e) => setPlanForm({ ...planForm, duration: e.target.value })}
+                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-neutral-300 mb-1">
+                                السعر بالجنيه المصري (Price in EGP) *
+                              </label>
+                              <input
+                                type="number"
+                                required
+                                min="0"
+                                placeholder="مثال: 800"
+                                value={planForm.price || ''}
+                                onChange={(e) => setPlanForm({ ...planForm, price: parseFloat(e.target.value) || 0 })}
+                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none font-mono"
+                                dir="ltr"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-bold text-neutral-300 mb-1">
+                                شارة مميزة (Badge - اختياري)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="مثال: الأكثر طلباً أو أفضل قيمة"
+                                value={planForm.badge}
+                                onChange={(e) => setPlanForm({ ...planForm, badge: e.target.value })}
+                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-6">
+                              <input
+                                type="checkbox"
+                                id="isPopular"
+                                checked={planForm.isPopular}
+                                onChange={(e) => setPlanForm({ ...planForm, isPopular: e.target.checked })}
+                                className="accent-red-600 w-4 h-4 rounded"
+                              />
+                              <label htmlFor="isPopular" className="text-xs text-white font-bold cursor-pointer">
+                                إبراز هذه الباقة بإطار أحمر وتأثير متميز (Featured)
+                              </label>
+                            </div>
                           </div>
 
                           <div>
-                            <div className="flex items-center gap-2">
-                              <h5 className="font-bold text-white text-sm">{p.duration}</h5>
-                              {p.badge && (
-                                <span className="px-2 py-0.5 rounded-full bg-red-600/20 text-red-400 border border-red-600/30 text-[10px] font-bold">
-                                  {p.badge}
+                            <label className="block text-xs font-bold text-neutral-300 mb-1">
+                              مميزات الاشتراك (ميزة في كل سطر)
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={planForm.featuresText}
+                              onChange={(e) => setPlanForm({ ...planForm, featuresText: e.target.value })}
+                              placeholder="دخول يومي غير محدود&#10;خطة تدريب وتغذية&#10;فحص دوري"
+                              className="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-xs focus:border-red-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="flex justify-end gap-3 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAddingPlan(false);
+                                setEditingPlanId(null);
+                              }}
+                              className="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs hover:bg-neutral-700"
+                            >
+                              إلغاء
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 shadow-md"
+                            >
+                              حفظ الباقة
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+
+                    {/* Plans Table/List */}
+                    <div className="space-y-3">
+                      {safePlans.length === 0 ? (
+                        <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
+                          لا توجد باقات اشتراكات مضافة بعد. اضغط على زر "إضافة باقة جديدة" لإضافة أول اشتراك.
+                        </div>
+                      ) : (
+                        safePlans.map((p, index) => (
+                          <div
+                            key={p.id}
+                            className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          >
+                            <div className="flex items-center gap-4">
+                              {/* Reorder buttons */}
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => handleMovePlan(index, 'up')}
+                                  className="p-1 rounded bg-neutral-900 text-neutral-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                                  title="تحريك لأعلى"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === safePlans.length - 1}
+                                  onClick={() => handleMovePlan(index, 'down')}
+                                  className="p-1 rounded bg-neutral-900 text-neutral-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                                  title="تحريك لأسفل"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="font-bold text-white text-sm">{p.duration}</h5>
+                                  {p.badge && (
+                                    <span className="px-2 py-0.5 rounded-full bg-red-600/20 text-red-400 border border-red-600/30 text-[10px] font-bold">
+                                      {p.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-neutral-400 mt-1 flex items-center gap-2">
+                                  <span className="font-display font-bold text-red-500 text-sm" dir="ltr">
+                                    {p.price} EGP
+                                  </span>
+                                  <span>•</span>
+                                  <span>{(p.features || []).length} ميزة مضافة</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2 self-end sm:self-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPlanId(p.id);
+                                  setIsAddingPlan(false);
+                                  setPlanForm({
+                                    duration: p.duration,
+                                    price: p.price,
+                                    badge: p.badge || '',
+                                    isPopular: !!p.isPopular,
+                                    featuresText: (p.features || []).join('\n')
+                                  });
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                <span>تعديل</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePlan(p.id)}
+                                className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900 text-red-400 hover:text-white border border-red-900/60 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>حذف</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. LEADS MANAGEMENT */}
+                {activeTab === 'leads' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-base font-bold text-white">طلبات الاشتراكات الواردة</h4>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          سجل المشتركين الذين أرسلوا طلبات انضمام عبر نموذج الموقع
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={fetchLeads}
+                        className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLeads ? 'animate-spin' : ''}`} />
+                        <span>تحديث</span>
+                      </button>
+                    </div>
+
+                    {safeLeads.length === 0 ? (
+                      <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
+                        لم يتم تسجيل طلبات اشتراك جديدة حتى الآن.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-neutral-800 rounded-xl overflow-hidden border border-neutral-800 bg-neutral-950">
+                        {safeLeads.map((lead) => (
+                          <div key={lead.id || Math.random()} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                              <div className="font-bold text-white text-sm">
+                                {lead.fullName || 'مشترك'}
+                              </div>
+                              <div className="text-xs text-neutral-400 flex flex-wrap items-center gap-2 mt-1">
+                                <span className="font-mono text-red-400" dir="ltr">{lead.phoneNumber || ''}</span>
+                                <span>•</span>
+                                <span>{lead.country || ''}</span>
+                                <span>•</span>
+                                <span className="text-neutral-300 font-semibold">{lead.subscriptionDuration || ''}</span>
+                                <span>•</span>
+                                <span className="font-bold text-emerald-400">{lead.price || 0} EGP</span>
+                                <span>•</span>
+                                <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px]">
+                                  {lead.paymentMethod || 'Vodafone Cash'}
                                 </span>
+                              </div>
+                              {lead.createdAt && (
+                                <div className="text-[10px] text-neutral-500 mt-1">
+                                  {(() => {
+                                    try {
+                                      return new Date(lead.createdAt).toLocaleString('ar-EG');
+                                    } catch {
+                                      return String(lead.createdAt);
+                                    }
+                                  })()}
+                                </div>
                               )}
                             </div>
-                            <div className="text-xs text-neutral-400 mt-1 flex items-center gap-2">
-                              <span className="font-display font-bold text-red-500 text-sm" dir="ltr">
-                                {p.price} EGP
-                              </span>
-                              <span>•</span>
-                              <span>{p.features?.length || 0} ميزة مضافة</span>
+
+                            <div>
+                              <a
+                                href={`https://wa.me/${String(lead.phoneNumber || '').replace(/[^0-9]/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>مراسلة عبر واتساب</span>
+                              </a>
                             </div>
                           </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center gap-2 self-end sm:self-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingPlanId(p.id);
-                              setIsAddingPlan(false);
-                              setPlanForm({
-                                duration: p.duration,
-                                price: p.price,
-                                badge: p.badge || '',
-                                isPopular: !!p.isPopular,
-                                featuresText: (p.features || []).join('\n')
-                              });
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-700 text-xs font-semibold flex items-center gap-1.5"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            <span>تعديل</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePlan(p.id)}
-                            className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900 text-red-400 hover:text-white border border-red-900/60 text-xs font-semibold flex items-center gap-1.5"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>حذف</span>
-                          </button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
-              )}
-
-              {/* 5. LEADS MANAGEMENT */}
-              {activeTab === 'leads' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-base font-bold text-white">طلبات الاشتراكات الواردة</h4>
-                      <p className="text-xs text-neutral-400 mt-0.5">
-                        سجل المشتركين الذين أرسلوا طلبات انضمام عبر نموذج الموقع
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={fetchLeads}
-                      className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-xs flex items-center gap-1.5"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLeads ? 'animate-spin' : ''}`} />
-                      <span>تحديث</span>
-                    </button>
-                  </div>
-
-                  {leads.length === 0 ? (
-                    <div className="p-8 text-center bg-neutral-950/60 rounded-xl border border-neutral-800 text-neutral-400 text-xs">
-                      لم يتم تسجيل طلبات اشتراك جديدة حتى الآن.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-neutral-800 rounded-xl overflow-hidden border border-neutral-800 bg-neutral-950">
-                      {leads.map((lead) => (
-                        <div key={lead.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <div className="font-bold text-white text-sm">
-                              {lead.fullName}
-                            </div>
-                            <div className="text-xs text-neutral-400 flex flex-wrap items-center gap-2 mt-1">
-                              <span className="font-mono text-red-400" dir="ltr">{lead.phoneNumber}</span>
-                              <span>•</span>
-                              <span>{lead.country}</span>
-                              <span>•</span>
-                              <span className="text-neutral-300 font-semibold">{lead.subscriptionDuration}</span>
-                              <span>•</span>
-                              <span className="font-bold text-emerald-400">{lead.price} EGP</span>
-                              <span>•</span>
-                              <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px]">
-                                {lead.paymentMethod}
-                              </span>
-                            </div>
-                            {lead.createdAt && (
-                              <div className="text-[10px] text-neutral-500 mt-1">
-                                {new Date(lead.createdAt).toLocaleString('ar-EG')}
-                              </div>
-                            )}
-                          </div>
-
-                          <div>
-                            <a
-                              href={`https://wa.me/${lead.phoneNumber.replace(/[^0-9]/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>مراسلة عبر واتساب</span>
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
+                )}
+              </div>
             </div>
-
-          </div>
+          </ErrorBoundary>
         )}
-
       </div>
     </div>
   );
